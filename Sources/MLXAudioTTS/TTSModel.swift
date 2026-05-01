@@ -74,6 +74,8 @@ public enum TTS {
         case "kokoro", "kokoro_tts":
             let processor = textProcessor ?? KokoroMultilingualProcessor()
             return try await KokoroModel.fromPretrained(modelRepo, textProcessor: processor, cache: cache)
+        case "voxcpm2", "vox_cpm2":
+            return try await VoxCPM2Model.fromPretrained(modelRepo, cache: cache)
         default:
             throw TTSModelError.unsupportedModelType(modelType ?? resolvedType)
         }
@@ -129,6 +131,9 @@ public enum TTS {
         }
         if lower.contains("kokoro") {
             return "kokoro"
+        }
+        if lower.contains("voxcpm") {
+            return "voxcpm2"
         }
         return nil
     }
