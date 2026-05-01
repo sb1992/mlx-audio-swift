@@ -53,6 +53,7 @@ public class AudioPlayer: NSObject, ObservableObject {
             // Create new player
             player = try AVAudioPlayer(contentsOf: url)
             player?.delegate = self
+            player?.volume = 1.0
             player?.prepareToPlay()
 
             // Update state
@@ -71,6 +72,9 @@ public class AudioPlayer: NSObject, ObservableObject {
     public func play() {
         guard let player = player else { return }
 
+        if player.currentTime >= player.duration {
+            player.currentTime = 0
+        }
         player.play()
         isPlaying = true
         setSpeaking(true)
@@ -273,8 +277,8 @@ public class AudioPlayer: NSObject, ObservableObject {
         stopTimer()
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let player = self?.player else { return }
-                self?.currentTime = player.currentTime
+                guard let self, let player = self.player else { return }
+                self.currentTime = min(player.currentTime, self.duration)
             }
         }
         timer?.tolerance = 0.05
@@ -394,7 +398,7 @@ extension AudioPlayer: @MainActor AVAudioPlayerDelegate {
         isPlaying = false
         setSpeaking(false)
         stopTimer()
-        currentTime = 0
+        currentTime = duration
     }
 
     public func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
