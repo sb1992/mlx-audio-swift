@@ -76,6 +76,8 @@ public enum TTS {
             return try await KokoroModel.fromPretrained(modelRepo, textProcessor: processor, cache: cache)
         case "voxcpm2", "vox_cpm2":
             return try await VoxCPM2Model.fromPretrained(modelRepo, cache: cache)
+        case "tada", "tada_tts":
+            return try await TadaTTSModel.fromPretrained(modelRepo, cache: cache)
         default:
             throw TTSModelError.unsupportedModelType(modelType ?? resolvedType)
         }
@@ -134,6 +136,9 @@ public enum TTS {
         }
         if lower.contains("voxcpm") {
             return "voxcpm2"
+        }
+        if lower.contains("tada") {
+            return "tada"
         }
         return nil
     }
