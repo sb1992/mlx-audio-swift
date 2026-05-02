@@ -79,17 +79,12 @@ public enum ModelUtils {
             .appendingPathComponent("mlx-audio")
             .appendingPathComponent(modelSubdir)
 
-        // Check if model already exists with required files
+        // Check if model already exists with required files (search recursively for subdirectory layouts like TADA)
         if FileManager.default.fileExists(atPath: modelDir.path) {
-            let files = try? FileManager.default.contentsOfDirectory(at: modelDir, includingPropertiesForKeys: [.fileSizeKey])
-            let hasRequiredFile = files?.contains { file in
-                guard file.pathExtension == normalizedRequiredExtension else { return false }
-                let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-                return size > 0
-            } ?? false
+            let hasRequiredFile = Self.hasNonZeroFile(in: modelDir, withExtension: normalizedRequiredExtension)
 
             if hasRequiredFile {
-                // Validate that config.json is valid JSON
+                // Validate that config.json is valid JSON (if present)
                 let configPath = modelDir.appendingPathComponent("config.json")
                 if FileManager.default.fileExists(atPath: configPath.path) {
                     if let configData = try? Data(contentsOf: configPath),
@@ -100,6 +95,10 @@ public enum ModelUtils {
                         print("Cached config.json is invalid, clearing cache...")
                         Self.clearCaches(modelDir: modelDir, repoID: repoID, hubCache: cache)
                     }
+                } else {
+                    // No root config.json but weight files exist (e.g. subdirectory layouts)
+                    print("Using cached model at: \(modelDir.path)")
+                    return modelDir
                 }
             } else {
                 print("Cached model appears incomplete, clearing cache...")
@@ -131,23 +130,28 @@ public enum ModelUtils {
             }
         )
 
-        // Post-download validation: ensure required files are non-zero
-        let downloadedFiles = try? FileManager.default.contentsOfDirectory(
-            at: modelDir, includingPropertiesForKeys: [.fileSizeKey]
-        )
-        let hasValidFile = downloadedFiles?.contains { file in
-            guard file.pathExtension == normalizedRequiredExtension else { return false }
-            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            return size > 0
-        } ?? false
-
-        if !hasValidFile {
+        // Post-download validation: ensure required files are non-zero (recursive for subdirectory layouts)
+        if !Self.hasNonZeroFile(in: modelDir, withExtension: normalizedRequiredExtension) {
             Self.clearCaches(modelDir: modelDir, repoID: repoID, hubCache: cache)
             throw ModelUtilsError.incompleteDownload(repoID.description)
         }
 
         print("Model downloaded to: \(modelDir.path)")
         return modelDir
+    }
+
+    private static func hasNonZeroFile(in directory: URL, withExtension ext: String) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+        for case let file as URL in enumerator {
+            guard file.pathExtension == ext else { continue }
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            if size > 0 { return true }
+        }
+        return false
     }
 
     private static func clearCaches(modelDir: URL, repoID: Repo.ID, hubCache: HubCache) {
