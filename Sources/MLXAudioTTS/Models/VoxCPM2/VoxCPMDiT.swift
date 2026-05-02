@@ -14,10 +14,14 @@ import MLXNN
 
 class SinusoidalPosEmb: Module {
     let dim: Int
+    let freqs: MLXArray
 
     init(dim: Int) {
         assert(dim % 2 == 0)
         self.dim = dim
+        let halfDim = dim / 2
+        let emb = log(Float(10000)) / Float(halfDim - 1)
+        self.freqs = MLX.exp(MLXArray(0 ..< halfDim).asType(.float32) * -emb)
         super.init()
     }
 
@@ -26,10 +30,6 @@ class SinusoidalPosEmb: Module {
         if inp.ndim < 1 {
             inp = inp.reshaped([1])
         }
-
-        let halfDim = dim / 2
-        let emb = log(Float(10000)) / Float(halfDim - 1)
-        let freqs = MLX.exp(MLXArray(0 ..< halfDim).asType(.float32) * -emb)
 
         let scaled = scale * inp.expandedDimensions(axis: 1) * freqs.expandedDimensions(axis: 0)
 
@@ -182,11 +182,11 @@ class VoxUnifiedCFM: Module {
                 let muIn = MLX.concatenated([mu, MLXArray.zeros(like: mu)], axis: 0)
 
                 let n = xIn.dim(0)
-                let tVal = MLXArray(Array(repeating: t, count: n))
+                let tVal = MLX.broadcast(MLXArray(t), to: [n])
 
                 let dtValIn: MLXArray
                 if meanMode {
-                    dtValIn = MLXArray(Array(repeating: dt, count: n))
+                    dtValIn = MLX.broadcast(MLXArray(dt), to: [n])
                 } else {
                     dtValIn = MLXArray.zeros([n])
                 }
