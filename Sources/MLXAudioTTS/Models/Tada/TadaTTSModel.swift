@@ -567,6 +567,7 @@ class TadaForCausalLM: Module {
 
 public class TadaTTSModel: @unchecked Sendable, SpeechGenerationModel {
     private let inner: TadaForCausalLM
+    public var inferenceOptions = TadaInferenceOptions()
 
     public var sampleRate: Int { 24000 }
 
@@ -593,7 +594,7 @@ public class TadaTTSModel: @unchecked Sendable, SpeechGenerationModel {
         }
 
         let reference = try await encodeReference(audio: refAudio, text: refText)
-        let (wav, _) = inner.generate(text: text, reference: reference)
+        let (wav, _) = inner.generate(text: text, reference: reference, inferenceOptions: inferenceOptions)
         return wav
     }
 
