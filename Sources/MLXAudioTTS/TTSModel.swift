@@ -78,6 +78,8 @@ public enum TTS {
             return try await VoxCPM2Model.fromPretrained(modelRepo, cache: cache)
         case "tada", "tada_tts":
             return try await TadaTTSModel.fromPretrained(modelRepo, cache: cache)
+        case "meanaudio", "mean_audio":
+            return try await MeanAudioModel.fromPretrained(modelRepo, cache: cache)
         default:
             throw TTSModelError.unsupportedModelType(modelType ?? resolvedType)
         }
@@ -139,6 +141,9 @@ public enum TTS {
         }
         if lower.contains("tada") {
             return "tada"
+        }
+        if lower.contains("meanaudio") || lower.contains("mean-audio") || lower.contains("mean_audio") {
+            return "meanaudio"
         }
         return nil
     }
