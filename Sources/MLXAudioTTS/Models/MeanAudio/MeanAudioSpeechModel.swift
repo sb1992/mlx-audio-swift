@@ -60,6 +60,9 @@ public final class MeanAudioModel: Module, SpeechGenerationModel, @unchecked Sen
 
     public var sampleRate: Int { config.sampleRate }
 
+    public var cfgStrengthOverride: Float?
+    public var stepsOverride: Int?
+
     public var defaultGenerationParameters: GenerateParameters {
         GenerateParameters(temperature: 0.0)
     }
@@ -94,8 +97,8 @@ public final class MeanAudioModel: Module, SpeechGenerationModel, @unchecked Sen
         try Task.checkCancellation()
 
         let options = MeanAudioGenerateOptions(
-            cfgStrength: config.cfgStrength,
-            steps: config.steps,
+            cfgStrength: cfgStrengthOverride ?? config.cfgStrength,
+            steps: stepsOverride ?? config.steps,
             seed: nil
         )
 
