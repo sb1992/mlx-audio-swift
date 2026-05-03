@@ -44,8 +44,9 @@ DROP_KEYS = {
 
 # PyTorch nn.Sequential index → Swift named submodule
 SEQUENTIAL_MAP = {
-    # audio_input_proj: Sequential(ChannelLastConv1d, SELU, ConvMLP)
-    "audio_input_proj.0.conv": "audio_input_proj.conv1.conv",
+    # audio_input_proj: Sequential(Conv1d, SELU, ConvMLP)
+    # In Python these are bare Conv1d; Swift wraps in MAChannelLastConv1d (.conv added later)
+    "audio_input_proj.0": "audio_input_proj.conv1",
     "audio_input_proj.2": "audio_input_proj.mlp",
     # text_input_proj: Sequential(Linear, MLP)
     "text_input_proj.0": "text_input_proj.linear",
@@ -63,8 +64,7 @@ ADALN_PATTERN = re.compile(r"(.*)adaLN_modulation\.1\.(.*)")
 # Regex for t_embed.mlp.0 → t_embed.linear1, t_embed.mlp.2 → t_embed.linear2
 EMBED_MLP_PATTERN = re.compile(r"(t_embed|r_embed)\.mlp\.(\d+)\.(.*)")
 
-# Conv1d weight keys (need transpose)
-CONV_WEIGHT_PATTERN = re.compile(r".*conv\.weight$")
+# (CONV_WEIGHT_PATTERN removed — we detect 3D tensors directly instead)
 
 # Frozen parameter name mapping (snake_case → camelCase for Swift)
 PARAM_RENAME = {
@@ -119,19 +119,36 @@ def convert(input_path: str, output_dir: str):
         if k in DROP_KEYS or k.endswith("_extra_state"):
             del state_dict[k]
 
-    # Map keys and transpose conv weights
-    mapped = OrderedDict()
+    # Phase 1: Map keys and collect conv stems (keys with 3D weights)
+    pre_mapped = OrderedDict()
+    conv_stems = set()
     for key, tensor in state_dict.items():
         new_key = map_key(key)
         arr = tensor.numpy()
+        pre_mapped[(key, new_key)] = arr
+        if arr.ndim == 3 and new_key.endswith(".weight"):
+            conv_stems.add(new_key[: -len(".weight")])
 
-        # Conv1d: PyTorch (out_ch, in_ch, kernel) → MLX (out_ch, kernel, in_ch)
-        if CONV_WEIGHT_PATTERN.match(key) and arr.ndim == 3:
+    # Phase 2: Insert .conv for MAChannelLastConv1d wrappers and transpose
+    # In Python, Conv1d layers sit directly at the path (e.g. ffn.w1.weight).
+    # In Swift, they're wrapped in MAChannelLastConv1d which adds a .conv level
+    # (e.g. ffn.w1.conv.weight). We insert .conv for any key whose stem has a 3D weight.
+    mapped = OrderedDict()
+    for (orig_key, mapped_key), arr in pre_mapped.items():
+        final_key = mapped_key
+
+        for stem in conv_stems:
+            if mapped_key.startswith(stem + "."):
+                suffix = mapped_key[len(stem) :]
+                final_key = stem + ".conv" + suffix
+                break
+
+        if arr.ndim == 3 and final_key.endswith(".weight"):
             arr = np.transpose(arr, (0, 2, 1))
 
-        mapped[new_key] = arr
-        if new_key != key:
-            print(f"  {key} → {new_key}  shape={arr.shape}")
+        mapped[final_key] = arr
+        if final_key != orig_key:
+            print(f"  {orig_key} → {final_key}  shape={arr.shape}")
 
     # Save
     out = Path(output_dir)
@@ -147,6 +164,7 @@ def convert(input_path: str, output_dir: str):
 
     # Write config
     config = {
+        "model_type": "meanaudio",
         "latent_dim": 20,
         "text_dim": 1024,
         "text_c_dim": 512,
@@ -157,10 +175,10 @@ def convert(input_path: str, output_dir: str):
         "mlp_ratio": 4.0,
         "latent_seq_len": 312,
         "text_seq_len": 77,
-        "use_rope": False,
+        "use_rope": True,
         "sample_rate": 16000,
         "duration_seconds": 9.975,
-        "cfg_strength": 4.5,
+        "cfg_strength": 0.0,
         "steps": 1,
     }
     with open(out / "config.json", "w") as f:
@@ -226,21 +244,27 @@ def convert_bigvgan(input_path: str, output_dir: str):
     if isinstance(state_dict, dict) and "generator" in state_dict:
         state_dict = state_dict["generator"]
 
+    # Remap ups.N.0.* → ups.N.conv.* (PyTorch nn.Sequential → Swift named module)
+    UPS_REMAP = re.compile(r"^(ups\.\d+)\.0\.")
+
     mapped = OrderedDict()
     for key, tensor in state_dict.items():
         if key.endswith("num_batches_tracked"):
             continue
 
         arr = tensor.numpy()
+        new_key = UPS_REMAP.sub(r"\1.conv.", key)
 
         # ConvTranspose1d weights: PyTorch (in, out, kernel) → MLX (out, kernel, in)
-        if "ups." in key and key.endswith(".weight") and arr.ndim == 3:
+        if "ups." in new_key and new_key.endswith(".weight") and arr.ndim == 3:
             arr = np.transpose(arr, (1, 2, 0))
         # Regular Conv1d: PyTorch (out, in, kernel) → MLX (out, kernel, in)
-        elif key.endswith(".weight") and arr.ndim == 3:
+        elif new_key.endswith(".weight") and arr.ndim == 3:
             arr = np.transpose(arr, (0, 2, 1))
 
-        mapped[key] = arr
+        mapped[new_key] = arr
+        if new_key != key:
+            print(f"  {key} → {new_key}  shape={arr.shape}")
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -272,8 +296,8 @@ def bundle(args):
         # Write BigVGAN config (MeanAudio uses 80-mel, 16kHz BigVGAN)
         bigvgan_config = {
             "num_mels": 80,
-            "upsample_rates": [5, 4, 2, 2, 2],
-            "upsample_kernel_sizes": [10, 8, 4, 4, 4],
+            "upsample_rates": [4, 4, 2, 2, 2, 2],
+            "upsample_kernel_sizes": [8, 8, 4, 4, 4, 4],
             "upsample_initial_channel": 1536,
             "resblock": "1",
             "resblock_kernel_sizes": [3, 7, 11],

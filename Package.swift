@@ -273,6 +273,12 @@ let package = Package(
             ]
         ),
 
+        .executableTarget(
+            name: "meanaudio-test",
+            dependencies: ["MLXAudioCore", "MLXAudioCodecs", "MLXAudioTTS"],
+            path: "Sources/Tools/meanaudio-test"
+        ),
+
         // MARK: - Tests
         .testTarget(
             name: "MLXAudioTests",

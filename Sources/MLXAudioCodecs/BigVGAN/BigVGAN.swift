@@ -183,7 +183,7 @@ public final class BigVGAN: Module {
 
         hidden = activationPost(hidden)
         hidden = convPost(hidden)
-        hidden = config.useTanhAtFinal ? MLX.tanh(hidden) : MLX.clip(hidden, min: -1.0, max: 1.0)
+        hidden = MLX.tanh(hidden)
         return hidden.transposed(0, 2, 1)
     }
 
@@ -197,10 +197,17 @@ public final class BigVGAN: Module {
                 continue
             }
 
+            let modelKey = key
+                .replacingOccurrences(of: "conv_pre", with: "convPre")
+                .replacingOccurrences(of: "conv_post", with: "convPost")
+                .replacingOccurrences(of: "activation_post", with: "activationPost")
+
             var value = originalValue
-            if let current = currentWeights[key] {
-                if (key.contains("conv") || key.contains("ups.")) && value.ndim == 3 && value.shape != current.shape {
-                    if key.contains("ups.") {
+            if let current = currentWeights[modelKey] {
+                if modelKey.hasSuffix(".filter") && value.ndim == 3 && value.shape != current.shape {
+                    value = value.transposed(0, 2, 1)
+                } else if (modelKey.contains("conv") || modelKey.contains("ups.")) && value.ndim == 3 && value.shape != current.shape {
+                    if modelKey.contains("ups.") {
                         value = value.transposed(1, 2, 0)
                     } else {
                         value = value.transposed(0, 2, 1)
@@ -210,7 +217,7 @@ public final class BigVGAN: Module {
                 }
             }
 
-            sanitized[key] = value
+            sanitized[modelKey] = value
         }
 
         return sanitized

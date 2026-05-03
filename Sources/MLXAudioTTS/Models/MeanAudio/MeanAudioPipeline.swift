@@ -18,7 +18,7 @@ public struct MeanAudioGenerateOptions: Sendable {
     public var steps: Int
     public var seed: UInt64?
 
-    public init(cfgStrength: Float = 4.5, steps: Int = 1, seed: UInt64? = nil) {
+    public init(cfgStrength: Float = 0, steps: Int = 1, seed: UInt64? = nil) {
         self.cfgStrength = cfgStrength
         self.steps = steps
         self.seed = seed
@@ -29,7 +29,7 @@ public final class MeanAudioPipeline {
     public let config: MeanAudioConfig
     let flowModel: MeanAudioFlowTransformer
     let vae: MeanAudioVAE
-    var vocoder: BigVGAN?
+    public var vocoder: BigVGAN?
 
     public init(config: MeanAudioConfig) {
         self.config = config
@@ -80,6 +80,7 @@ public final class MeanAudioPipeline {
         eval(conditions.textF, conditions.textFC, emptyConditions.textF, emptyConditions.textFC)
 
         let noise = MLXRandom.normal([bs, config.latentSeqLen, config.latentDim])
+        eval(noise)
 
         let sampler = MeanFlowSampler(steps: options.steps)
         let latent = sampler.sample(
@@ -89,17 +90,13 @@ public final class MeanAudioPipeline {
             emptyConditions: emptyConditions,
             cfgStrength: options.cfgStrength
         )
+        eval(latent)
 
         let unnormed = flowModel.unnormalize(latent)
-        eval(unnormed)
-
-        // VAE decode: latent (B, Seq, D) → (B, D, Seq) → mel (B, C, T)
-        let latentChannelsFirst = unnormed.transposed(0, 2, 1)
-        let melChannelsFirst = vae.decode(latentChannelsFirst)
-        eval(melChannelsFirst)
-
-        // Return mel in (B, T, C) for BigVGAN
-        return melChannelsFirst.transposed(0, 2, 1)
+        let latentCF = unnormed.transposed(0, 2, 1)
+        let mel = vae.decode(latentCF)
+        eval(mel)
+        return mel
     }
 
     /// Generate waveform from pre-computed text features (full pipeline: flow → VAE → BigVGAN).
@@ -118,7 +115,6 @@ public final class MeanAudioPipeline {
             options: options
         )
 
-        // BigVGAN expects (B, T, C) and returns (B, T_audio, 1)
         let waveform = vocoder(mel)
         eval(waveform)
 
@@ -126,12 +122,41 @@ public final class MeanAudioPipeline {
         return waveform.squeezed()
     }
 
+    public func decodeLatent(_ normalizedLatent: MLXArray) throws -> MLXArray {
+        guard let vocoder else {
+            throw AudioGenerationError.modelNotInitialized("BigVGAN vocoder not loaded")
+        }
+        let unnormed = flowModel.unnormalize(normalizedLatent)
+        let latentCF = unnormed.transposed(0, 2, 1)
+        let mel = vae.decode(latentCF)
+        let waveform = vocoder(mel)
+        eval(waveform)
+        return waveform.squeezed()
+    }
+
+    public func decodeVAE(_ channelsFirstLatent: MLXArray) -> MLXArray {
+        vae.decode(channelsFirstLatent)
+    }
+
+    public func vocode(_ mel: MLXArray) throws -> MLXArray {
+        guard let vocoder else {
+            throw AudioGenerationError.modelNotInitialized("BigVGAN vocoder not loaded")
+        }
+        let waveform = vocoder(mel)
+        eval(waveform)
+        return waveform.squeezed()
+    }
+
+    public var latentMean: MLXArray { flowModel.latentMean }
+    public var latentStd: MLXArray { flowModel.latentStd }
+
     public var parameterCount: Int {
         let flowParams = flowModel.parameters().flattened().map(\.1.size).reduce(0, +)
         let vaeParams = vae.parameters().flattened().map(\.1.size).reduce(0, +)
         let vocoderParams = vocoder?.parameters().flattened().map(\.1.size).reduce(0, +) ?? 0
         return flowParams + vaeParams + vocoderParams
     }
+
 }
 
 // MARK: - Weight Loading Helpers

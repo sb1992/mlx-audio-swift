@@ -72,21 +72,20 @@ enum MARoPE {
 
     static func applyRoPE(_ x: MLXArray, rot: MLXArray) -> MLXArray {
         // x: (B, heads, seq, headDim)
+        // rot: (1, seq, headDim/2, 2, 2)
         let xFloat = x.asType(.float32)
         let shape = xFloat.shape
-        // Reshape to (..., dim/2, 1, 2)
+
+        // Reshape to (B, heads, seq, headDim/2, 1, 2)
         let xReshaped = xFloat.reshaped(shape.dropLast() + [shape.last! / 2, 1, 2])
 
-        // rot: (1, seq, dim/2, 2, 2) — matrix multiply via element-wise + sum
-        // result[..., 0] = rot[..., 0, 0] * x[..., 0] + rot[..., 0, 1] * x[..., 1]
-        // result[..., 1] = rot[..., 1, 0] * x[..., 0] + rot[..., 1, 1] * x[..., 1]
-        let x0 = xReshaped[.ellipsis, 0]  // (..., dim/2, 1)
-        let x1 = xReshaped[.ellipsis, 1]  // (..., dim/2, 1)
+        let x0 = xReshaped[.ellipsis, 0]  // (B, H, N, D/2, 1)
+        let x1 = xReshaped[.ellipsis, 1]  // (B, H, N, D/2, 1)
 
-        let out0 = rot[.ellipsis, 0, 0] * x0 + rot[.ellipsis, 0, 1] * x1
-        let out1 = rot[.ellipsis, 1, 0] * x0 + rot[.ellipsis, 1, 1] * x1
+        // Column-wise multiply: rot[..., j] selects column j of each 2x2 matrix
+        // rot[..., 0]: (1, N, D/2, 2) — broadcasts with (B, H, N, D/2, 1)
+        let xOut = rot[.ellipsis, 0] * x0 + rot[.ellipsis, 1] * x1  // (B, H, N, D/2, 2)
 
-        let xOut = MLX.stacked([out0, out1], axis: -1)
         return xOut.reshaped(shape).asType(x.dtype)
     }
 }

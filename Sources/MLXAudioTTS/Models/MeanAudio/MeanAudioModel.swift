@@ -82,10 +82,10 @@ class MeanAudioFlowTransformer: Module {
     @ModuleInfo(key: "joint_blocks") var jointBlocks: [MAJointBlock]
     @ModuleInfo(key: "fused_blocks") var fusedBlocks: [MAMMDitSingleBlock]
 
-    let latentMean: MLXArray
-    let latentStd: MLXArray
-    let emptyStringFeat: MLXArray
-    let emptyStringFeatC: MLXArray
+    var latentMean: MLXArray
+    var latentStd: MLXArray
+    var emptyStringFeat: MLXArray
+    var emptyStringFeatC: MLXArray
 
     var latentRot: MLXArray?
     var textRot: MLXArray?
@@ -180,9 +180,11 @@ class MeanAudioFlowTransformer: Module {
 
         var lat = audioInputProj(latent)
 
-        // global_c = t_embed(t) + r_embed(r) + text_f_c, all unsqueezed to (B, 1, D)
-        let globalC = tEmbed(t).expandedDimensions(axis: 1)
-            + rEmbed(r).expandedDimensions(axis: 1)
+        let tEmbVal = tEmbed(t)
+        let rEmbVal = rEmbed(r)
+
+        let globalC = tEmbVal.expandedDimensions(axis: 1)
+            + rEmbVal.expandedDimensions(axis: 1)
             + textFC.expandedDimensions(axis: 1)
 
         let extendedC = globalC

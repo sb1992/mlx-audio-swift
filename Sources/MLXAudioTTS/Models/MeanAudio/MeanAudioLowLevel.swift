@@ -27,10 +27,8 @@ class MAChannelLastConv1d: Module {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        // x: (B, Seq, D) → transpose to (B, D, Seq) for Conv1d → back
-        let transposed = x.transposed(0, 2, 1)
-        let out = conv(transposed)
-        return out.transposed(0, 2, 1)
+        // x: (B, Seq, C_in) — MLX Conv1d already expects channels-last (N, L, C_in)
+        conv(x)
     }
 }
 

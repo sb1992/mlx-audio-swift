@@ -90,9 +90,8 @@ public final class BigVGANPeriodicActivation: Module, UnaryLayer {
     public init(channels: Int, alphaLogscale: Bool, useBeta: Bool) {
         self.alphaLogscale = alphaLogscale
         self.useBeta = useBeta
-        let initial = alphaLogscale ? MLXArray.zeros([channels]) : MLXArray.ones([channels])
-        self.alpha = initial
-        self.beta = initial
+        self.alpha = alphaLogscale ? MLXArray.zeros([channels]) : MLXArray.ones([channels])
+        self.beta = alphaLogscale ? MLXArray.zeros([channels]) : MLXArray.ones([channels])
     }
 
     public func callAsFunction(_ x: MLXArray) -> MLXArray {
@@ -350,7 +349,7 @@ public final class BigVGANActivation1d: Module, UnaryLayer {
 }
 
 public final class BigVGANUpsampleStage: Module, UnaryLayer {
-    @ModuleInfo(key: "0") public var conv: BigVGANWNConvTranspose1d
+    @ModuleInfo(key: "conv") public var conv: BigVGANWNConvTranspose1d
 
     public init(conv: BigVGANWNConvTranspose1d) {
         self._conv = ModuleInfo(wrappedValue: conv)

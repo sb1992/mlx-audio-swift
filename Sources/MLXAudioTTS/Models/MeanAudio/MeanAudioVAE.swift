@@ -36,7 +36,7 @@ private func mpSum(_ a: MLXArray, _ b: MLXArray, t: Float = 0.5) -> MLXArray {
 // MARK: - Magnitude-Preserving Conv1d (EDM2)
 
 class MAMPConv1D: Module {
-    let weight: MLXArray
+    var weight: MLXArray
     let outChannels: Int
 
     init(inChannels: Int, outChannels: Int, kernelSize: Int) {
@@ -47,16 +47,17 @@ class MAMPConv1D: Module {
     }
 
     func callAsFunction(_ x: MLXArray, gain: MLXArray? = nil) -> MLXArray {
-        var w = weight
-        if let gain {
-            w = w * gain
-        }
-        if w.ndim == 2 {
+        if weight.ndim == 2 {
+            var w = weight / (MLX.sqrt(weight.square().sum(axis: 1, keepDims: true)) + 1e-8)
+            if let gain { w = w * gain }
             return MLX.matmul(x, w.transposed())
         }
+        var w = weight / (MLX.sqrt(weight.square().sum(axes: [1, 2], keepDims: true)) + 1e-8)
+        if let gain { w = w * gain }
         let padding = w.dim(1) / 2
-        // x: (B, C, T) → conv1d with padding
-        return MLX.conv1d(x, w, padding: padding)
+        let xCL = x.transposed(0, 2, 1)
+        let out = MLX.conv1d(xCL, w, padding: padding)
+        return out.transposed(0, 2, 1)
     }
 }
 
@@ -270,7 +271,7 @@ class MAVAEDecoder: Module {
     @ModuleInfo var mid: MADecoderMid
     @ModuleInfo var up: [MADecoderUpLevel]
     @ModuleInfo(key: "conv_out") var convOut: MAMPConv1D
-    let learnableGain: MLXArray
+    var learnableGain: MLXArray
 
     init(
         dim: Int = 384,
@@ -320,7 +321,6 @@ class MAVAEDecoder: Module {
 
     func callAsFunction(_ z: MLXArray) -> MLXArray {
         var h = convIn(z)
-
         h = mid(h)
         h = clip(h, min: -clipAct, max: clipAct)
 
@@ -347,8 +347,8 @@ class MAVAEDecoder: Module {
 // MARK: - Full VAE (decode-only for inference)
 
 class MeanAudioVAE: Module {
-    let dataMean: MLXArray
-    let dataStd: MLXArray
+    var dataMean: MLXArray
+    var dataStd: MLXArray
 
     @ModuleInfo var decoder: MAVAEDecoder
 

@@ -73,7 +73,7 @@ class MASelfAttention: Module {
 // MARK: - RMS Norm (no learnable weight, elementwise_affine=False equivalent)
 
 class MARMSNorm: Module {
-    let weight: MLXArray
+    var weight: MLXArray
     let eps: Float
 
     init(dim: Int, eps: Float = 1e-6) {

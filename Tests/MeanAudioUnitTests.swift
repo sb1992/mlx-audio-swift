@@ -5,6 +5,7 @@
 //  Unit tests for MeanAudio model components — no weights needed.
 //
 
+import Foundation
 import Testing
 import MLX
 @testable import MLXAudioTTS
@@ -287,5 +288,37 @@ struct MeanAudioUnitTests {
         #expect(decoded.hiddenDim == config.hiddenDim)
         #expect(decoded.numHeads == config.numHeads)
         #expect(decoded.depth == config.depth)
+    }
+
+    // MARK: - Weight Loading (requires converted weights at /tmp/meanaudio-mlx/)
+
+    @Test func flowWeightLoading() throws {
+        let weightsURL = URL(fileURLWithPath: "/tmp/meanaudio-mlx/model.safetensors")
+        guard FileManager.default.fileExists(atPath: weightsURL.path) else {
+            print("Skipping: converted weights not found at \(weightsURL.path)")
+            return
+        }
+
+        let config = MeanAudioConfig.small
+        let pipeline = MeanAudioPipeline(config: config)
+        try pipeline.loadFlowWeights(from: weightsURL)
+
+        let paramCount = pipeline.parameterCount
+        print("Flow parameter count after loading: \(paramCount)")
+        #expect(paramCount > 100_000_000)
+    }
+
+    @Test func fullModelDirectoryLoading() async throws {
+        let modelDir = URL(fileURLWithPath: "/tmp/meanaudio-mlx")
+        guard FileManager.default.fileExists(atPath: modelDir.appendingPathComponent("model.safetensors").path) else {
+            print("Skipping: converted weights not found at \(modelDir.path)")
+            return
+        }
+
+        let model = try await MeanAudioModel.fromModelDirectory(modelDir)
+        let paramCount = model.parameterCount
+        print("Total parameter count: \(paramCount) (\(paramCount / 1_000_000)M)")
+        #expect(paramCount > 100_000_000)
+        #expect(model.sampleRate == 16000)
     }
 }
