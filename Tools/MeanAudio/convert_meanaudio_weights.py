@@ -214,6 +214,86 @@ def convert_vae(input_path: str, output_dir: str):
         print(f"safetensors not installed; saved as npz")
 
 
+def convert_bigvgan(input_path: str, output_dir: str):
+    """Convert BigVGAN checkpoint for MLX Swift.
+
+    BigVGAN weights need conv transpose: (out, in, kernel) → (out, kernel, in)
+    and ConvTranspose1d: (in, out, kernel) → (out, kernel, in).
+    """
+    print(f"Loading BigVGAN checkpoint: {input_path}")
+    state_dict = torch.load(input_path, map_location="cpu", weights_only=True)
+
+    if isinstance(state_dict, dict) and "generator" in state_dict:
+        state_dict = state_dict["generator"]
+
+    mapped = OrderedDict()
+    for key, tensor in state_dict.items():
+        if key.endswith("num_batches_tracked"):
+            continue
+
+        arr = tensor.numpy()
+
+        # ConvTranspose1d weights: PyTorch (in, out, kernel) → MLX (out, kernel, in)
+        if "ups." in key and key.endswith(".weight") and arr.ndim == 3:
+            arr = np.transpose(arr, (1, 2, 0))
+        # Regular Conv1d: PyTorch (out, in, kernel) → MLX (out, kernel, in)
+        elif key.endswith(".weight") and arr.ndim == 3:
+            arr = np.transpose(arr, (0, 2, 1))
+
+        mapped[key] = arr
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from safetensors.numpy import save_file
+        save_file(mapped, str(out / "bigvgan.safetensors"))
+        print(f"Saved {len(mapped)} tensors to {out / 'bigvgan.safetensors'}")
+    except ImportError:
+        np.savez(str(out / "bigvgan_weights.npz"), **mapped)
+        print(f"safetensors not installed; saved as npz")
+
+
+def bundle(args):
+    """Convert all components and bundle for HuggingFace upload."""
+    out = Path(args.output)
+    out.mkdir(parents=True, exist_ok=True)
+
+    print("=== Converting flow transformer ===")
+    convert(args.flow, str(out))
+
+    print("\n=== Converting VAE ===")
+    convert_vae(args.vae, str(out))
+
+    if args.bigvgan:
+        print("\n=== Converting BigVGAN ===")
+        convert_bigvgan(args.bigvgan, str(out))
+
+        # Write BigVGAN config (MeanAudio uses 80-mel, 16kHz BigVGAN)
+        bigvgan_config = {
+            "num_mels": 80,
+            "upsample_rates": [5, 4, 2, 2, 2],
+            "upsample_kernel_sizes": [10, 8, 4, 4, 4],
+            "upsample_initial_channel": 1536,
+            "resblock": "1",
+            "resblock_kernel_sizes": [3, 7, 11],
+            "resblock_dilation_sizes": [[1, 3, 5], [1, 3, 5], [1, 3, 5]],
+            "activation": "snakebeta",
+            "snake_logscale": True,
+            "use_bias_at_final": True,
+            "use_tanh_at_final": False,
+        }
+        with open(out / "bigvgan_config.json", "w") as f:
+            json.dump(bigvgan_config, f, indent=2)
+        print(f"Saved bigvgan_config.json")
+
+    print(f"\n=== Bundle complete at {out} ===")
+    print("Files:")
+    for f in sorted(out.iterdir()):
+        size_mb = f.stat().st_size / (1024 * 1024)
+        print(f"  {f.name}: {size_mb:.1f} MB")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert MeanAudio weights to MLX safetensors")
     sub = parser.add_subparsers(dest="command")
@@ -226,10 +306,24 @@ if __name__ == "__main__":
     vae_parser.add_argument("--input", required=True, help="Path to VAE .pth checkpoint")
     vae_parser.add_argument("--output", required=True, help="Output directory")
 
+    bigvgan_parser = sub.add_parser("bigvgan", help="Convert BigVGAN checkpoint")
+    bigvgan_parser.add_argument("--input", required=True, help="Path to BigVGAN .pth checkpoint")
+    bigvgan_parser.add_argument("--output", required=True, help="Output directory")
+
+    bundle_parser = sub.add_parser("bundle", help="Convert all components for HF upload")
+    bundle_parser.add_argument("--flow", required=True, help="Path to flow .pth checkpoint")
+    bundle_parser.add_argument("--vae", required=True, help="Path to VAE .pth checkpoint")
+    bundle_parser.add_argument("--bigvgan", default=None, help="Path to BigVGAN .pth checkpoint")
+    bundle_parser.add_argument("--output", required=True, help="Output directory")
+
     args = parser.parse_args()
     if args.command == "flow":
         convert(args.input, args.output)
     elif args.command == "vae":
         convert_vae(args.input, args.output)
+    elif args.command == "bigvgan":
+        convert_bigvgan(args.input, args.output)
+    elif args.command == "bundle":
+        bundle(args)
     else:
         parser.print_help()

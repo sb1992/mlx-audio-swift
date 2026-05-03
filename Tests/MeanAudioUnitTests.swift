@@ -229,11 +229,63 @@ struct MeanAudioUnitTests {
         #expect(mel.dim(1) == 80)
     }
 
-    // MARK: - Pipeline Test
+    // MARK: - Pipeline Tests
 
     @Test func pipelineConstruction() {
         let config = MeanAudioConfig.small
         let pipeline = MeanAudioPipeline(config: config)
         #expect(pipeline.parameterCount > 0)
+    }
+
+    @Test func pipelineGenerateMelShape() {
+        let config = MeanAudioConfig.small
+        let pipeline = MeanAudioPipeline(config: config)
+
+        let textF = MLXRandom.normal([1, 77, 1024])
+        let textFC = MLXRandom.normal([1, 512])
+
+        let mel = pipeline.generateMel(
+            textFeatures: textF,
+            textFeaturesC: textFC,
+            options: MeanAudioGenerateOptions(cfgStrength: 4.5, steps: 1, seed: 42)
+        )
+        eval(mel)
+        // (B, T, 80) — T depends on VAE upsample
+        #expect(mel.dim(0) == 1)
+        #expect(mel.dim(2) == 80)
+    }
+
+    @Test func pipelineWithoutVocoderThrows() {
+        let config = MeanAudioConfig.small
+        let pipeline = MeanAudioPipeline(config: config)
+
+        let textF = MLXRandom.normal([1, 77, 1024])
+        let textFC = MLXRandom.normal([1, 512])
+
+        #expect(throws: (any Error).self) {
+            try pipeline.generateAudio(
+                textFeatures: textF,
+                textFeaturesC: textFC,
+                options: MeanAudioGenerateOptions(steps: 1, seed: 42)
+            )
+        }
+    }
+
+    // MARK: - Sidecar Client
+
+    @Test func sidecarClientInitialization() {
+        let client = MeanAudioTextEncoderClient(host: "127.0.0.1", port: 8765)
+        #expect(client.baseURL.absoluteString == "http://127.0.0.1:8765")
+    }
+
+    @Test func configCodable() throws {
+        let config = MeanAudioConfig.small
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(config)
+        let decoded = try JSONDecoder().decode(MeanAudioConfig.self, from: data)
+        #expect(decoded.latentDim == config.latentDim)
+        #expect(decoded.hiddenDim == config.hiddenDim)
+        #expect(decoded.numHeads == config.numHeads)
+        #expect(decoded.depth == config.depth)
     }
 }
