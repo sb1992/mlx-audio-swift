@@ -168,9 +168,68 @@ def convert(input_path: str, output_dir: str):
     print(f"Saved config.json")
 
 
+def convert_vae(input_path: str, output_dir: str):
+    """Convert VAE checkpoint to MLX safetensors.
+
+    The VAE weights need weight normalization removed before saving.
+    After remove_weight_norm(), the weights are already normalized.
+    Conv1d weights still need PyTorch→MLX transpose.
+    """
+    print(f"Loading VAE checkpoint: {input_path}")
+    state_dict = torch.load(input_path, map_location="cpu", weights_only=True)
+
+    # Only keep decoder weights (encoder not needed for inference)
+    mapped = OrderedDict()
+    for key, tensor in state_dict.items():
+        if key.startswith("encoder."):
+            continue
+        arr = tensor.numpy()
+
+        # Conv1d weight transpose: (out, in, kernel) → (out, kernel, in)
+        if key.endswith(".weight") and arr.ndim == 3:
+            arr = np.transpose(arr, (0, 2, 1))
+
+        # Rename data_mean/data_std to camelCase
+        new_key = key
+        if key == "data_mean":
+            new_key = "dataMean"
+        elif key == "data_std":
+            new_key = "dataStd"
+        elif key.startswith("decoder.learnable_gain"):
+            new_key = key.replace("learnable_gain", "learnableGain")
+
+        mapped[new_key] = arr
+        if new_key != key:
+            print(f"  {key} → {new_key}  shape={arr.shape}")
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from safetensors.numpy import save_file
+        save_file(mapped, str(out / "vae.safetensors"))
+        print(f"Saved {len(mapped)} tensors to {out / 'vae.safetensors'}")
+    except ImportError:
+        np.savez(str(out / "vae_weights.npz"), **mapped)
+        print(f"safetensors not installed; saved as npz")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert MeanAudio weights to MLX safetensors")
-    parser.add_argument("--input", required=True, help="Path to .pth checkpoint")
-    parser.add_argument("--output", required=True, help="Output directory for safetensors + config")
+    sub = parser.add_subparsers(dest="command")
+
+    flow_parser = sub.add_parser("flow", help="Convert flow transformer checkpoint")
+    flow_parser.add_argument("--input", required=True, help="Path to .pth checkpoint")
+    flow_parser.add_argument("--output", required=True, help="Output directory")
+
+    vae_parser = sub.add_parser("vae", help="Convert VAE checkpoint")
+    vae_parser.add_argument("--input", required=True, help="Path to VAE .pth checkpoint")
+    vae_parser.add_argument("--output", required=True, help="Output directory")
+
     args = parser.parse_args()
-    convert(args.input, args.output)
+    if args.command == "flow":
+        convert(args.input, args.output)
+    elif args.command == "vae":
+        convert_vae(args.input, args.output)
+    else:
+        parser.print_help()

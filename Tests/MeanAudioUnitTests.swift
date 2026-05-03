@@ -166,4 +166,74 @@ struct MeanAudioUnitTests {
         eval(output)
         #expect(output.shape == [1, 312, 20])
     }
+
+    // MARK: - VAE Tests
+
+    @Test func mpConv1dShape() {
+        let conv = MAMPConv1D(inChannels: 20, outChannels: 384, kernelSize: 3)
+        let x = MLXRandom.normal([1, 20, 312])
+        let out = conv(x)
+        eval(out)
+        #expect(out.shape == [1, 384, 312])
+    }
+
+    @Test func resnetBlock1dSameShape() {
+        let block = MAResnetBlock1D(inDim: 384, outDim: 384)
+        let x = MLXRandom.normal([1, 384, 312])
+        let out = block(x)
+        eval(out)
+        #expect(out.shape == [1, 384, 312])
+    }
+
+    @Test func resnetBlock1dDiffShape() {
+        let block = MAResnetBlock1D(inDim: 384, outDim: 768)
+        let x = MLXRandom.normal([1, 384, 312])
+        let out = block(x)
+        eval(out)
+        #expect(out.shape == [1, 768, 312])
+    }
+
+    @Test func attnBlock1dShape() {
+        let block = MAAttnBlock1D(inChannels: 384)
+        let x = MLXRandom.normal([1, 384, 32])
+        let out = block(x)
+        eval(out)
+        #expect(out.shape == [1, 384, 32])
+    }
+
+    @Test func upsample1dShape() {
+        let up = MAUpsample1D(inChannels: 384, withConv: true)
+        let x = MLXRandom.normal([1, 384, 312])
+        let out = up(x)
+        eval(out)
+        #expect(out.shape == [1, 384, 624])
+    }
+
+    @Test func vaeDecoderShape() {
+        let decoder = MAVAEDecoder()
+        let z = MLXRandom.normal([1, 20, 312])
+        let mel = decoder(z)
+        eval(mel)
+        #expect(mel.dim(0) == 1)
+        #expect(mel.dim(1) == 80)
+        // Seq length depends on upsample (312 → 624 with one upsample layer)
+        #expect(mel.dim(2) == 624)
+    }
+
+    @Test func vaeFullDecodeShape() {
+        let vae = MeanAudioVAE()
+        let z = MLXRandom.normal([1, 20, 312])
+        let mel = vae.decode(z)
+        eval(mel)
+        #expect(mel.dim(0) == 1)
+        #expect(mel.dim(1) == 80)
+    }
+
+    // MARK: - Pipeline Test
+
+    @Test func pipelineConstruction() {
+        let config = MeanAudioConfig.small
+        let pipeline = MeanAudioPipeline(config: config)
+        #expect(pipeline.parameterCount > 0)
+    }
 }
