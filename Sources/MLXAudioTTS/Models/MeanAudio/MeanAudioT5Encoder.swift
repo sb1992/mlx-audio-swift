@@ -393,7 +393,8 @@ public final class MeanAudioT5Encoder: @unchecked Sendable {
             throw T5EncoderError.notLoaded
         }
 
-        let tokenized = texts.map { tokenizer.encode(text: $0, addSpecialTokens: true) }
+        // MeanAudio training uses T5 without EOS token appended
+        let tokenized = texts.map { tokenizer.encode(text: $0, addSpecialTokens: false) }
         let batch = tokenized.count
 
         var idsFlat: [Int32] = []
