@@ -270,8 +270,14 @@ public final class VoxCPM2Model: Module, SpeechGenerationModel, @unchecked Senda
         let scaleEmb = Float(config.lmConfig.useMup ? config.lmConfig.scaleEmb : 1)
         let latentDim = audioVAE.latentDim
 
+        // Voice design / controllable cloning: prepend description as (instruct)text
+        var synthesisText = text
+        if let voice, !voice.isEmpty {
+            synthesisText = "(\(voice))\(text)"
+        }
+
         // Tokenize text
-        let textIds = try tokenize(text)
+        let textIds = try tokenize(synthesisText)
 
         // Determine mode: reference cloning vs zero-shot
         let textToken: MLXArray
