@@ -69,6 +69,10 @@ public final class VoxCPM2Model: Module, SpeechGenerationModel, @unchecked Senda
 
     public let tokenizer: Tokenizers.Tokenizer?
 
+    // Per-generation overrides (nil = use config defaults)
+    public var cfgScaleOverride: Float?
+    public var inferenceTimestepsOverride: Int?
+
     // MARK: - Special tokens (defined in VoxCPM2 tokenizer config, ids 101-104)
 
     let audioStartToken: Int32 = 101
@@ -264,8 +268,8 @@ public final class VoxCPM2Model: Module, SpeechGenerationModel, @unchecked Senda
     ) async throws -> MLXArray {
         let maxTokens = generationParameters.maxTokens ?? config.maxLength
         let minTokens = 2
-        let inferenceTimesteps = config.inferenceTimesteps
-        let cfgValue = config.cfgScale
+        let inferenceTimesteps = inferenceTimestepsOverride ?? config.inferenceTimesteps
+        let cfgValue = cfgScaleOverride ?? config.cfgScale
 
         let scaleEmb = Float(config.lmConfig.useMup ? config.lmConfig.scaleEmb : 1)
         let latentDim = audioVAE.latentDim
